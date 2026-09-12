@@ -1,42 +1,58 @@
-# Manual Testing and Validation Script
+# Roteiro de Testes Manuais - Landpager Admin Mobile
 
-## Objective
-Validate the basic functionality of the Landpager Mobile App wrapper.
+Este documento contém o roteiro para testar a integração, UI/UX e segurança do aplicativo React Native CLI puro.
 
-## Prerequisites
-1. Node.js installed.
-2. Expo CLI installed.
-3. Expo Go app installed on your physical mobile device.
-4. (Optional) EAS CLI installed if you want to build the APK.
+## 1. Setup e Compilação
 
-## Success Criteria Evaluation
-> Note: The commands `npm run test`, `npm run lint`, `npm run build:worker`, and `wrangler` are typically used for Next.js and Cloudflare projects. Since this is an Expo (React Native) project, these scripts do not exist by default. For this wrapper, we focus on manual testing as specified in Phase 7 of the Execution Plan.
+1.  Certifique-se de ter o ambiente React Native configurado para Android (Android Studio, SDKs, variáveis de ambiente).
+2.  Na raiz do projeto, instale os pods do iOS (caso possua Mac): `npx pod-install ios`
+3.  Inicie o Metro Bundler: `npm start`
+4.  Em outro terminal, compile e rode no emulador Android ou dispositivo conectado: `npm run android`
+5.  *(Apenas iOS/Mac)*: `npm run ios`
 
-## Step 1: Run the Project
-1. Open the terminal and navigate to the project directory: `d:\Projects\TemplateLandpage-Mobile`.
-2. Run `npm install` just to ensure everything is synced.
-3. Run `npm run start` or `npx expo start`.
-4. A QR code will appear in the terminal.
+> [!TIP]
+> **Como instalar via USB no seu celular físico (Android):**
+> 1. No seu celular, vá em **Configurações > Sobre o telefone**.
+> 2. Toque 7 vezes em **"Número da Versão"** (ou Build Number) até aparecer a mensagem "Você agora é um desenvolvedor".
+> 3. Volte e vá em **Configurações > Sistema > Opções do Desenvolvedor**.
+> 4. Ative a opção **"Depuração USB"** (USB Debugging).
+> 5. Conecte o celular ao computador via cabo USB. Se aparecer um aviso na tela do celular perguntando se confia no computador, clique em **Permitir/OK**.
+> 6. Agora, basta rodar `npm run android` no terminal do seu computador (com o projeto aberto) e o React Native irá compilar e instalar o app direto no seu celular.
 
-## Step 2: Test on Device (Expo Go)
-1. Open the **Expo Go** app on your physical device.
-2. Scan the QR code.
-3. **Verify:** You should see the Setup Screen with a centered card asking for a URL.
-4. **Action:** Enter a URL (e.g., `catalog.landpager.com` or an invalid string like `foo`) and click "Connect".
-5. **Verify:** It should validate (prepend `https://` if needed) and switch to the WebView screen.
-6. **Verify:** The WebView should load the specified URL.
+## 2. Teste de UI/UX e Segurança na Tela de Login
 
-## Step 3: Test Push Notifications (Requires APK / Dev Build)
-*Note: Push notifications do not work reliably in the standard Expo Go app. You must build the app to test this fully.*
-1. Install EAS CLI: `npm install -g eas-cli`
-2. Login to Expo: `eas login`
-3. Configure the project: `eas build:configure`
-4. Build the Android APK: `eas build -p android --profile preview`
-5. Download and install the generated APK on your device.
-6. Open the app and observe the terminal logs to ensure `Expo Push Token` is fetched successfully.
-7. Verify that Next.js backend receives the token (once the backend logic is implemented in the Web Repository).
+### Cenário 2.1: Bloqueio SSRF (Domínio Inválido)
+- Abra o aplicativo e na tela de login informe o domínio `google.com` ou `hacker.net`.
+- Preencha qualquer senha.
+- Clique em "Acessar Painel".
+- **Comportamento Esperado:** Um alerta de erro deve aparecer indicando que a URL não pertence a um domínio permitido (`.landpager.com`), bloqueando a chamada à API.
 
-## Step 4: Test "Clear Base URL"
-1. In your Next.js application, add a button that executes: 
-   `window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CLEAR_BASE_URL' }))`
-2. **Verify:** Clicking this button inside the WebView on the app should return you to the Setup Screen.
+### Cenário 2.2: Senha Incorreta
+- Informe um domínio válido, como `demo.landpager.com`.
+- Informe uma senha **incorreta**.
+- Clique em "Acessar Painel".
+- **Comportamento Esperado:** O Activity Indicator deve girar enquanto faz a requisição. Um alerta de erro deve aparecer indicando "Falha ao realizar login" ou "Incorrect password".
+
+### Cenário 2.3: Login de Sucesso e UX Premium
+- Informe um domínio válido.
+- Informe a senha **correta**.
+- Clique em "Acessar Painel".
+- **Comportamento Esperado:** O Activity Indicator roda, o login na API retorna sucesso, salva o cookie e as credenciais (KeyChain), e redireciona o usuário para o WebView na rota `/admin`.
+
+## 3. Teste do WebView e Injeção de Cookie
+
+- Após o sucesso no Cenário 2.3, o aplicativo abrirá o `WebViewScreen`.
+- **Comportamento Esperado:** O WebView deve renderizar a página administrativa, reconhecendo o cookie injetado de forma nativa e burlando o redirecionamento para o login web padrão. O loading indicator (Activity Indicator) só deve sumir quando a página carregar completamente.
+
+## 4. Teste de Reabertura (Persistência com KeyChain)
+
+- Feche o aplicativo forçadamente no emulador ou dispositivo.
+- Abra o aplicativo novamente.
+- **Comportamento Esperado:** A tela inicial do aplicativo deve verificar as credenciais salvas via `react-native-keychain`. Ao encontrar a URL salva, o aplicativo deve pular a tela de login e cair diretamente no `WebViewScreen` conectado à rota `/admin`.
+
+## 5. Teste de Push Notifications (Firebase)
+
+*(Necessário configurar o Firebase Console e gerar o google-services.json no diretório `android/app`)*
+- Ao carregar o WebView, se a página web chamar via `postMessage({type: 'REQUEST_FCM_TOKEN'})`, o aplicativo deve devolver o Token FCM com sucesso via JavaScript Injection.
+- Envie uma notificação teste via Firebase Console.
+- **Comportamento Esperado:** Se o app estiver aberto, um Alerta nativo do React Native deve pipocar na tela com o Título e Body. Se estiver fechado ou em background, a notificação push tradicional do sistema operacional (Android/iOS) deve aparecer.

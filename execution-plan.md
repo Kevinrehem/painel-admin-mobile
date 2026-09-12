@@ -89,6 +89,10 @@ This plan provides a step-by-step guide for implementing the React Native (Expo)
        "body": "Uma venda de R$ 99,00 foi aprovada."
      }]
      ```
+4. **Theme Sync (Dark/Light Mode):**
+   - The React Native wrapper dynamically adapts its top status bar and bottom navigation bar to the OS theme (`#FFFFFF` for Light, `#1A202C` for Dark).
+   - Ensure the Next.js web application's header and background colors match these hex codes exactly for a seamless "blend-in" effect.
+   - If the user can change the theme *manually* inside the web app (ignoring the OS theme), implement a `postMessage` event to notify React Native of the new theme so the native bars can update accordingly.
 
 ## Phase 7: Final Testing & Compilation
 
@@ -97,3 +101,12 @@ This plan provides a step-by-step guide for implementing the React Native (Expo)
 2. **Build APK:**
    - Install EAS CLI: `npm install -g eas-cli`.
    - Run `eas build -p android --profile preview` to generate the `.apk` file for testing.
+
+## Phase 8: UI/UX Enhancements & Theme Blending (Completed)
+
+1. **SafeArea Fixes:**
+   - Replaced React Native's default `SafeAreaView` with `react-native-safe-area-context` and wrapped the app in `<SafeAreaProvider>` to correctly calculate notch and status bar heights, preventing the WebView from rendering underneath the notification bar.
+2. **Dynamic Theme Blending (Top Status Bar):**
+   - Implemented `useColorScheme` in `WebViewScreen.tsx` and `LoginScreen.tsx` to dynamically switch the `<StatusBar>` and padding backgrounds to `#FFFFFF` (Light) or `#1A202C` (Dark), perfectly blending with the web application.
+3. **Dynamic Theme Blending (Android Navigation Bar):**
+   - Modified native Android resource files (`android/app/src/main/res/values/styles.xml` and `values-night/styles.xml`) to enforce light (`@android:color/white`) and dark (`#1A202C`) colors for the Android bottom navigation bar depending on the OS theme.

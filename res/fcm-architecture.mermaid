@@ -1,0 +1,28 @@
+sequenceDiagram
+    autonumber
+    
+    actor User
+    participant RN as React Native App (Mobile)
+    participant NextJS as Next.js Web App (WebView)
+    participant API as Next.js API (Backend)
+    participant DB as PostgreSQL Database
+    participant MP as Mercado Pago
+    participant FCM as Firebase Cloud Messaging
+
+    Note over RN, NextJS: Token Registration Flow
+    RN->>FCM: requestUserPermission() & getToken()
+    FCM-->>RN: Returns fcmToken string
+    RN->>NextJS: window.postMessage({ type: 'FCM_TOKEN', token })
+    NextJS->>API: POST /api/settings/push-token { token }
+    API->>DB: Upsert fcmToken into SiteSettings
+    API-->>NextJS: 200 OK
+    
+    Note over MP, RN: Webhook & Notification Flow
+    MP->>API: POST /api/mercadopago/webhook (Payment Approved)
+    API->>DB: Query fcmTokens for the Site Owner
+    DB-->>API: Returns [token1, token2]
+    API->>FCM: admin.messaging().sendMulticast({ notification, tokens })
+    FCM-->>API: Response (Success / Invalid Tokens)
+    API->>DB: Purge invalid tokens (if any)
+    FCM->>RN: Deliver Push Notification (Background/Foreground)
+    RN->>User: Displays Alert or System Notification
