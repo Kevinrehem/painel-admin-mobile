@@ -1,39 +1,207 @@
 import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { WebViewScreen } from './src/screens/WebViewScreen';
-import { getSavedCredentials } from './src/services/auth';
-import { ActivityIndicator, View } from 'react-native';
+import { NotificationScreen } from './src/screens/NotificationScreen';
+import { getSavedCredentials, getSavedAuthToken } from './src/services/auth';
+import {
+  ActivityIndicator,
+  View,
+  PermissionsAndroid,
+  Platform,
+  StyleSheet,
+  DeviceEventEmitter,
+} from 'react-native';
+import { CustomTabBar } from './src/components/CustomTabBar';
+import {
+  getMessaging,
+  requestPermission,
+  AuthorizationStatus,
+  getToken,
+  onTokenRefresh,
+} from '@react-native-firebase/messaging';
+import {
+  initializeNotifications,
+  createHighPriorityChannel,
+  getUnreadCount,
+  NOTIFICATION_RECEIVED_EVENT,
+  NOTIFICATION_READ_EVENT,
+} from './src/services/notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// ─── Navigators ───────────────────────────────────────────────────────────────
 
 const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator();
+
+// ─── Main Tabs (shown after login) ───────────────────────────────────────────
+
+interface MainTabsProps {
+  initialUrl: string;
+}
+
+/**
+ * Bottom tab navigator rendered after a successful login.
+ * Contains: WebView (admin panel) + Notificações.
+ */
+const renderTabBar = (props: any) => <CustomTabBar {...props} />;
+
+const MainTabs: React.FC<MainTabsProps> = ({ initialUrl }) => {
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Refresh unread badge on focus
+  useEffect(() => {
+    const refreshBadge = async () => {
+      const count = await getUnreadCount();
+      setUnreadCount(count);
+    };
+    refreshBadge();
+    
+    // Listen for real-time notification events
+    const subReceived = DeviceEventEmitter.addListener(NOTIFICATION_RECEIVED_EVENT, refreshBadge);
+    const subRead = DeviceEventEmitter.addListener(NOTIFICATION_READ_EVENT, refreshBadge);
+
+    return () => {
+      subReceived.remove();
+      subRead.remove();
+    };
+  }, []);
+
+  return (
+    <Tab.Navigator
+      tabBar={renderTabBar}
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
+      <Tab.Screen
+        name="WebView"
+        options={{
+          tabBarLabel: 'Painel',
+        }}
+      >
+        {props => <WebViewScreen {...props} route={{ ...props.route, params: { url: initialUrl } }} />}
+      </Tab.Screen>
+
+      <Tab.Screen
+        name="Notificações"
+        component={NotificationScreen}
+        options={{
+          tabBarLabel: 'Notificações',
+          tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
+        }}
+        listeners={{
+          tabPress: async () => {
+            // Refresh badge after visiting notifications tab
+            const count = await getUnreadCount();
+            setUnreadCount(count);
+          },
+        }}
+      />
+    </Tab.Navigator>
+  );
+};
+
+// ─── App ──────────────────────────────────────────────────────────────────────
 
 const App = () => {
   const [initialRoute, setInitialRoute] = useState<string | null>(null);
-  const [initialParams, setInitialParams] = useState<any>(null);
+  const [webViewUrl, setWebViewUrl] = useState<string>('');
 
   useEffect(() => {
+    const requestPushPermissionAndToken = async () => {
+      if (Platform.OS === 'android' && Platform.Version >= 33) {
+        await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+      }
+      const messagingInstance = getMessaging();
+      const authStatus = await requestPermission(messagingInstance);
+      const enabled =
+        authStatus === AuthorizationStatus.AUTHORIZED ||
+        authStatus === AuthorizationStatus.PROVISIONAL;
+
+      if (enabled) {
+        try {
+          const fcmToken = await getToken(messagingInstance);
+          console.log('FCM Token:', fcmToken);
+
+          // Guard: não envia se o token for nulo
+          if (!fcmToken) {
+            console.warn('[PushToken] FCM token nulo — registro ignorado.');
+            return;
+          }
+
+          // Cache: evita reenvio desnecessário na mesma sessão
+          const cacheKey = `push_token_registered_${fcmToken}`;
+          const alreadyRegistered = await AsyncStorage.getItem(cacheKey);
+          if (alreadyRegistered === 'true') {
+            console.log('[PushToken] Token já registrado nesta sessão — ignorando reenvio.');
+            return;
+          }
+
+          const credentials = await getSavedCredentials();
+          if (credentials && credentials.url) {
+            // Recupera o JWT do Keychain para injeção explícita no header Cookie,
+            // evitando race condition com o CookieManager nativo.
+            const authToken = await getSavedAuthToken();
+            const success = await syncFCMTokenToBackend(fcmToken, credentials.url, authToken);
+            if (success) {
+              await AsyncStorage.setItem(cacheKey, 'true');
+              console.log('Push token registrado com sucesso!');
+            }
+          }
+        } catch (error) {
+          console.error('Erro ao obter FCM token:', error);
+        }
+      }
+    };
+
     const checkCredentials = async () => {
       const credentials = await getSavedCredentials();
       if (credentials) {
-        // Assume user is already logged in, redirect to webview
         let finalUrl = credentials.url;
         if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
           finalUrl = `https://${finalUrl}`;
         }
-        setInitialRoute('WebView');
-        setInitialParams({ url: `${finalUrl}/admin` });
+        setWebViewUrl(`${finalUrl}/admin`);
+        setInitialRoute('MainTabs');
       } else {
         setInitialRoute('Login');
       }
     };
+
+    // Initialize: create high-priority FCM channel, then request permissions
+    createHighPriorityChannel();
+    requestPushPermissionAndToken();
     checkCredentials();
+
+    // Initialize foreground notification handler
+    const unsubscribeNotifications = initializeNotifications();
+
+    const messagingInstance = getMessaging();
+    const unsubscribeTokenRefresh = onTokenRefresh(messagingInstance, async newToken => {
+      console.log('FCM Token atualizado:', newToken);
+      const credentials = await getSavedCredentials();
+      if (credentials && credentials.url) {
+        // No refresh, invalida cache para garantir que o novo token seja enviado
+        const cacheKey = `push_token_registered_${newToken}`;
+        await AsyncStorage.removeItem(cacheKey);
+        const authToken = await getSavedAuthToken();
+        await syncFCMTokenToBackend(newToken, credentials.url, authToken);
+      }
+    });
+
+    return () => {
+      unsubscribeNotifications();
+      unsubscribeTokenRefresh();
+    };
   }, []);
 
   if (!initialRoute) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#3182CE" />
       </View>
     );
@@ -47,15 +215,24 @@ const App = () => {
           screenOptions={{ headerShown: false }}
         >
           <Stack.Screen name="Login" component={LoginScreen} />
-          <Stack.Screen
-            name="WebView"
-            component={WebViewScreen}
-            initialParams={initialParams}
-          />
+          <Stack.Screen name="MainTabs">
+            {(props) => {
+              const url = props.route?.params?.params?.url || props.route?.params?.url || webViewUrl;
+              return <MainTabs initialUrl={url} />;
+            }}
+          </Stack.Screen>
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
   );
 };
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});
 
 export default App;

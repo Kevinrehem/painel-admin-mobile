@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
 
@@ -6,11 +7,20 @@
       android:name=".MainApplication"
       android:label="@string/app_name"
       android:icon="@mipmap/ic_launcher"
-      android:roundIcon="@mipmap/ic_launcher_round"
       android:allowBackup="false"
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
+
+      <!-- FCM: Define o canal padrão de alta prioridade para heads-up notifications.
+           ATENÇÃO: Se o app já foi instalado com um canal de prioridade inferior,
+           é necessário desinstalar e reinstalar o app para que esta configuração
+           tenha efeito (canais Android são imutáveis após criação). -->
+      <meta-data
+        android:name="com.google.firebase.messaging.default_notification_channel_id"
+        android:value="high_priority_channel"
+        tools:replace="android:value" />
+
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
@@ -25,3 +35,4 @@
       </activity>
     </application>
 </manifest>
+

@@ -13,6 +13,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { loginAndSetCookie } from '../services/auth';
+import { getFCMToken, syncFCMTokenToBackend } from '../services/notifications';
 
 interface LoginScreenProps {
   navigation: any;
@@ -34,13 +35,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
 
     setLoading(true);
     try {
-      await loginAndSetCookie(domain, password);
-      // Determine final URL to pass to WebView
+      const authToken = await loginAndSetCookie(domain, password);
       let finalUrl = domain;
       if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
         finalUrl = `https://${finalUrl}`;
       }
-      navigation.replace('WebView', { url: `${finalUrl}/admin` });
+
+      try {
+        const token = await getFCMToken();
+        if (token) {
+          // Pass authToken explicitly to bypass CookieManager native race condition
+          await syncFCMTokenToBackend(token, finalUrl, authToken);
+        }
+      } catch (err) {
+        console.warn('Erro ao sincronizar token no login', err);
+      }
+
+      navigation.replace('MainTabs', { screen: 'WebView', params: { url: `${finalUrl}/admin` } });
     } catch (error: any) {
       Alert.alert('Erro de Autenticação', error.message || 'Falha ao realizar login.');
     } finally {

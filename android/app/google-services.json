@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1002821997583",
+    "project_id": "landpager-admin",
+    "storage_bucket": "landpager-admin.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1002821997583:android:3c2738127414cab548ff7a",
+        "android_client_info": {
+          "package_name": "com.landpageradmin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBAzbBCpvhkrozXJUXihBO3y03Io6gUTco"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

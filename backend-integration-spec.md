@@ -57,9 +57,17 @@ model SiteSettings {
    
    ```javascript
    const message = {
-     notification: {
+     data: {
+       type: 'PURCHASE_ALERT',
        title: 'Nova Venda!',
-       body: 'Uma venda de R$ 99,00 foi aprovada.',
+       message: 'Uma venda de R$ 99,00 foi aprovada.',
+       dynamicFields: JSON.stringify([
+         { label: "Cliente", value: "João Silva" },
+         { label: "Produto", value: "Plano Premium" }
+       ])
+     },
+     android: {
+       priority: 'high'
      },
      tokens: siteSettings.fcmTokens,
    };
