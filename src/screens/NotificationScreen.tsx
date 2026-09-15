@@ -11,16 +11,20 @@ import {
   Modal,
   ScrollView,
   Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Bell, BellOff, X, ChevronRight, Info } from 'lucide-react-native';
+import { Bell, BellOff, X, ChevronRight, Info, RefreshCw } from 'lucide-react-native';
 import {
   DynamicField,
   StoredNotification,
   getStoredNotifications,
   markNotificationAsRead,
   NOTIFICATION_RECEIVED_EVENT,
+  getFCMToken,
+  syncFCMTokenToBackend,
 } from '../services/notifications';
+import { getSavedCredentials, getSavedAuthToken } from '../services/auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,6 +113,7 @@ export const NotificationScreen: React.FC = () => {
   const [notifications, setNotifications] = useState<StoredNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedNotification, setSelectedNotification] = useState<StoredNotification | null>(null);
+  const [syncingToken, setSyncingToken] = useState(false);
   
   const isDark = useColorScheme() === 'dark';
   const insets = useSafeAreaInsets();
@@ -143,18 +148,62 @@ export const NotificationScreen: React.FC = () => {
     }
   }, []);
 
+  const handleResyncToken = useCallback(async () => {
+    setSyncingToken(true);
+    try {
+      const fcmToken = await getFCMToken();
+      if (!fcmToken) {
+        Alert.alert('Erro', 'Não foi possível obter o Token do dispositivo.');
+        return;
+      }
+      
+      const credentials = await getSavedCredentials();
+      const authToken = await getSavedAuthToken();
+      
+      if (!credentials?.url) {
+        Alert.alert('Erro', 'URL do painel não encontrada. Faça login novamente.');
+        return;
+      }
+      
+      const success = await syncFCMTokenToBackend(fcmToken, credentials.url, authToken);
+      if (success) {
+        Alert.alert('Sucesso', 'O dispositivo foi registrado para receber notificações.');
+      } else {
+        Alert.alert('Erro', 'Falha ao registrar dispositivo no painel.');
+      }
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Erro', 'Ocorreu um erro inesperado.');
+    } finally {
+      setSyncingToken(false);
+    }
+  }, []);
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
     <SafeAreaView style={[styles.container, isDark && styles.containerDark]} edges={['top', 'left', 'right']}>
       {/* Screen Header */}
       <View style={[styles.header, isDark && styles.headerDark]}>
-        <Text style={[styles.headerTitle, isDark && styles.headerTitleDark]}>Notificações</Text>
-        {unreadCount > 0 && (
-          <View style={styles.headerBadge}>
-            <Text style={styles.headerBadgeText}>{unreadCount}</Text>
-          </View>
-        )}
+        <View style={styles.headerLeft}>
+          <Text style={[styles.headerTitle, isDark && styles.headerTitleDark]}>Notificações</Text>
+          {unreadCount > 0 && (
+            <View style={styles.headerBadge}>
+              <Text style={styles.headerBadgeText}>{unreadCount}</Text>
+            </View>
+          )}
+        </View>
+        <TouchableOpacity
+          style={[styles.resyncButton, isDark && styles.resyncButtonDark]}
+          onPress={handleResyncToken}
+          disabled={syncingToken}
+        >
+          {syncingToken ? (
+            <ActivityIndicator size="small" color={isDark ? '#90CDF4' : '#3182CE'} />
+          ) : (
+            <RefreshCw size={20} color={isDark ? '#4A5568' : '#A0AEC0'} />
+          )}
+        </TouchableOpacity>
       </View>
 
       {loading && notifications.length === 0 ? (
@@ -273,6 +322,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
     backgroundColor: '#FFFFFF',
@@ -282,6 +332,21 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 3,
     zIndex: 10,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  resyncButton: {
+    padding: 8,
+    backgroundColor: '#F7FAFC',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#EDF2F7',
+  },
+  resyncButtonDark: {
+    backgroundColor: '#1A202C',
+    borderColor: '#2D3748',
   },
   headerDark: {
     backgroundColor: '#1E1E1E',

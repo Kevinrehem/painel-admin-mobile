@@ -44,8 +44,7 @@ Cookie: auth-token=<jwt>
 
 ### Observações de Implementação
 
-- O app envia o token na inicialização e em cada refresh via `onTokenRefresh`.
-- Cache local (`AsyncStorage`) previne reenvio redundante na mesma sessão — a chave de cache é `push_token_registered_<token>`.
+- O app envia o token na inicialização de toda nova sessão de app (sem cache local para garantir recebimento mesmo após wipe do backend) e em cada refresh do Firebase via `onTokenRefresh`.
 - No primeiro login, o `auth-token` é injetado explicitamente no header `Cookie` para mitigar race condition do CookieManager nativo.
 
 ---
@@ -54,24 +53,30 @@ Cookie: auth-token=<jwt>
 
 O backend despacha notificações via FCM usando o payload `data` (não `notification`), garantindo entrega mesmo com app em background/killed e controle total da exibição pelo app.
 
-### Payload FCM enviado pelo backend (Data-Only Message)
+### Payload FCM enviado pelo backend (Híbrido)
 
 ```json
 {
   "to": "<fcm_device_token>",
+  "notification": {
+    "title": "Novo Lead Cadastrado!",
+    "body": "Você tem um novo contato vindo da página inicial."
+  },
+  "android": {
+    "notification": {
+      "channel_id": "high_priority_channel_v2"
+    }
+  },
   "data": {
     "type": "FORM_SUBMISSION",
     "title": "Novo Lead Cadastrado!",
     "message": "Você tem um novo contato vindo da página inicial.",
     "dynamicFields": "[{\"label\":\"Nome\",\"value\":\"João Silva\"},{\"label\":\"E-mail\",\"value\":\"joao@exemplo.com\"},{\"label\":\"Telefone\",\"value\":\"(11) 99999-9999\"}]"
-  },
-  "android": {
-    "priority": "high"
   }
 }
 ```
 
-> **Nota:** `dynamicFields` é um JSON **stringificado** porque todos os valores do `data` FCM devem ser strings.
+> **Nota:** O `dynamicFields` deve ser um JSON **stringificado**. Mantemos `title` e `message` também no `data` para fallback interno no app.
 
 ### Campos do Payload `data`
 
@@ -142,7 +147,7 @@ Para que notificações apareçam como **heads-up** (banner sobreposto) sem o us
   android:value="high_priority_channel_v2" />
 ```
 
-> **⚠️ Som Customizado & Data-Only:** Como utilizamos um som customizado ("moedinha 8-bit"), o backend **deve** enviar apenas mensagens de dados (`data-only`). Se o backend incluir a chave `notification`, o sistema Android tentará exibir o push sozinho, potencialmente ignorando as configurações do Notifee e pulando o salvamento local do app em background. Ao enviar apenas `data`, o app intercepta via `setBackgroundMessageHandler`, salva no AsyncStorage e exibe com a biblioteca Notifee garantindo que o som de moeda de 8-bit seja sempre tocado.
+> **⚠️ Som Customizado & Payload Híbrido:** Para garantir que a notificação chegue em 100% dos aparelhos Android (mesmo quando o usuário força a parada do app "arrastando para cima" / killed state), o backend **deve enviar um payload híbrido** contendo as chaves `notification` e `data`. Para que o som customizado de moeda (8-bit) toque quando a mensagem chega via OS no background, é crucial que o backend especifique o `channel_id` dentro de `android.notification`, igual ao ID do canal que o app registrou (`high_priority_channel_v2`). O aplicativo interceptará os dados pelo `getInitialNotification` quando o usuário clicar no aviso.
 
 ---
 

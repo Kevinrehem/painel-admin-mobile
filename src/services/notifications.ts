@@ -298,6 +298,30 @@ export const initializeNotifications = () => {
   return unsubscribe;
 };
 
+/**
+ * Registra listeners para quando o usuário clica em uma notificação nativa gerada pelo Android
+ * (ex: quando o payload contém a chave 'notification' e o app estava em background/killed).
+ */
+export const setupNotificationInteractions = () => {
+  const messagingInstance = getMessaging();
+
+  // App estava em background (em memória) e usuário clicou na notificação nativa
+  const unsubscribe = messagingInstance.onNotificationOpenedApp(async remoteMessage => {
+    console.log('[Notifications] Usuário abriu o app via notificação (Background):', remoteMessage.messageId);
+    await saveNotificationToStorage(remoteMessage);
+  });
+
+  // App estava completamente fechado (killed/quit state) e usuário clicou na notificação nativa
+  messagingInstance.getInitialNotification().then(async remoteMessage => {
+    if (remoteMessage) {
+      console.log('[Notifications] Usuário abriu o app via notificação (Quit State):', remoteMessage.messageId);
+      await saveNotificationToStorage(remoteMessage);
+    }
+  });
+
+  return unsubscribe;
+};
+
 // Handle background messages — must be registered outside of React component tree
 // and called as early as possible (module level).
 setBackgroundMessageHandler(getMessaging(), async remoteMessage => {

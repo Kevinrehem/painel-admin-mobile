@@ -25,6 +25,7 @@ import {
 } from '@react-native-firebase/messaging';
 import {
   initializeNotifications,
+  setupNotificationInteractions,
   createHighPriorityChannel,
   getUnreadCount,
   NOTIFICATION_RECEIVED_EVENT,
@@ -133,23 +134,12 @@ const App = () => {
             return;
           }
 
-          // Cache: evita reenvio desnecessário na mesma sessão
-          const cacheKey = `push_token_registered_${fcmToken}`;
-          const alreadyRegistered = await AsyncStorage.getItem(cacheKey);
-          if (alreadyRegistered === 'true') {
-            console.log('[PushToken] Token já registrado nesta sessão — ignorando reenvio.');
-            return;
-          }
-
           const credentials = await getSavedCredentials();
           if (credentials && credentials.url) {
-            // Recupera o JWT do Keychain para injeção explícita no header Cookie,
-            // evitando race condition com o CookieManager nativo.
             const authToken = await getSavedAuthToken();
             const success = await syncFCMTokenToBackend(fcmToken, credentials.url, authToken);
             if (success) {
-              await AsyncStorage.setItem(cacheKey, 'true');
-              console.log('Push token registrado com sucesso!');
+              console.log('Push token registrado com sucesso no backend no boot do app!');
             }
           }
         } catch (error) {
@@ -177,17 +167,15 @@ const App = () => {
     requestPushPermissionAndToken();
     checkCredentials();
 
-    // Initialize foreground notification handler
+    // Initialize foreground notification handler and background interactions
     const unsubscribeNotifications = initializeNotifications();
+    const unsubscribeInteractions = setupNotificationInteractions();
 
     const messagingInstance = getMessaging();
     const unsubscribeTokenRefresh = onTokenRefresh(messagingInstance, async newToken => {
       console.log('FCM Token atualizado:', newToken);
       const credentials = await getSavedCredentials();
       if (credentials && credentials.url) {
-        // No refresh, invalida cache para garantir que o novo token seja enviado
-        const cacheKey = `push_token_registered_${newToken}`;
-        await AsyncStorage.removeItem(cacheKey);
         const authToken = await getSavedAuthToken();
         await syncFCMTokenToBackend(newToken, credentials.url, authToken);
       }
@@ -195,6 +183,7 @@ const App = () => {
 
     return () => {
       unsubscribeNotifications();
+      unsubscribeInteractions();
       unsubscribeTokenRefresh();
     };
   }, []);
